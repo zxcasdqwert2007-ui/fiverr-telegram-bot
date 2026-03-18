@@ -1,12 +1,12 @@
-from aiogram import types
+from aiogram import types, Dispatcher
 from aiogram.dispatcher import FSMContext
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from states import ParseSettings
 from parser import FiverrParser
 import asyncio
 
-# Импортируем бота для отправки сообщений из фоновой задачи
-from bot import bot
+# Импортируем бота из loader, а не из bot.py
+from loader import bot
 
 def get_main_keyboard():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -105,7 +105,7 @@ async def cmd_stop(message: types.Message, state: FSMContext):
     await state.update_data(parsing_active=False)
     await message.answer("⏹ Команда остановки принята. Парсинг скоро завершится.")
 
-def register_handlers(dp):
+def register_handlers(dp: Dispatcher):
     dp.register_message_handler(cmd_start, commands=['start'])
     dp.register_message_handler(cmd_set_keywords, commands=['set_keywords'])
     dp.register_message_handler(cmd_set_exclude_countries, commands=['set_exclude_countries'])
