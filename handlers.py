@@ -130,7 +130,7 @@ async def run_parser(chat_id: int, state: FSMContext, keywords: list, exclude_co
                     return
 
                 await bot.send_message(chat_id, f"🔎 Ищу по слову: {keyword}")
-                profiles = await parser.search_profiles(keyword, max_pages=15)
+                profiles = await parser.search_profiles(keyword, max_pages=1)
 
                 if profiles:
                     for prof in profiles:

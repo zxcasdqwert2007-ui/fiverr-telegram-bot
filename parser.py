@@ -33,29 +33,59 @@ class FiverrParser:
         found_profiles = []
 
         for page in range(1, max_pages + 1):
-            # URL с сортировкой по новизне и фильтром "новые продавцы"
-            url = f"{self.base_url}/search/gigs?query={keyword}&page={page}&sort=newest_arrivals&seller_level=new"
-            print(f"Парсинг страницы {page} для '{keyword}': {url}")
+            # ✅ Правильные параметры из рабочей ссылки
+            url = (f"{self.base_url}/search/gigs?query={keyword}&page={page}"
+                   f"&sort=newest_arrivals&seller_level=new&source=sorting_by"
+                   f"&ref=seller_level%3Ana&filter=new")
+            print(f"🌐 Парсинг страницы {page} для '{keyword}': {url}")
 
             try:
-                async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as response:
+                async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    print(f"📡 Статус ответа: {response.status}")
                     if response.status != 200:
-                        print(f"Ошибка {response.status} на странице {page}")
+                        print(f"❌ Ошибка {response.status} на странице {page}")
+                        # Читаем немного ответа для диагностики
+                        text_sample = await response.text()
+                        print(f"📄 Первые 500 символов ответа:\n{text_sample[:500]}")
                         continue
 
                     html = await response.text()
+                    print(f"📄 Первые 500 символов HTML:\n{html[:500]}")
+
                     soup = BeautifulSoup(html, 'html.parser')
 
-                    # Селекторы карточек продавцов (могут меняться, уточните при необходимости)
+                    # 🔍 Несколько вариантов поиска карточек продавцов
+                    seller_cards = []
+
+                    # Вариант 1: data-testid (современный Fiverr)
                     seller_cards = soup.find_all('div', attrs={'data-testid': 'seller-card'})
+                    if seller_cards:
+                        print(f"✅ Найдено карточек по data-testid: {len(seller_cards)}")
+
+                    # Вариант 2: общие классы
                     if not seller_cards:
-                        seller_cards = soup.find_all('div', class_=re.compile('seller-info|freelancer-card'))
+                        seller_cards = soup.find_all('div', class_=re.compile('seller-card|freelancer-card|seller-info'))
+                        if seller_cards:
+                            print(f"✅ Найдено карточек по class: {len(seller_cards)}")
+
+                    # Вариант 3: ищем любые ссылки на профили и собираем контейнеры-родители
+                    if not seller_cards:
+                        profile_links = soup.find_all('a', href=re.compile(r'^/[^/]+$'))
+                        if profile_links:
+                            print(f"🔗 Найдено {len(profile_links)} прямых ссылок на профили")
+                            # Для каждой ссылки берём родительский div как карточку
+                            for link in profile_links:
+                                parent = link.find_parent('div', class_=re.compile('card|item|result'))
+                                if parent and parent not in seller_cards:
+                                    seller_cards.append(parent)
+                            print(f"📦 Собрано {len(seller_cards)} родительских контейнеров")
 
                     if not seller_cards:
-                        print(f"Нет карточек на странице {page}")
+                        print("⚠️ Карточки продавцов не найдены. Возможно, структура изменилась.")
                         continue
 
                     for card in seller_cards:
+                        # Извлекаем имя пользователя из ссылки
                         username_tag = card.find('a', href=re.compile(r'^/[^/]+$'))
                         if not username_tag:
                             continue
@@ -79,7 +109,7 @@ class FiverrParser:
                         if reviews != 0:
                             continue
 
-                        # Наличие гигов
+                        # Наличие гигов (ищем ссылку на гиги)
                         gigs_exist = bool(card.find('a', href=re.compile(r'/gigs')))
                         if not gigs_exist:
                             continue
@@ -93,13 +123,16 @@ class FiverrParser:
                             'keyword': keyword
                         })
 
-                    await asyncio.sleep(3)  # Пауза между страницами
+                    print(f"✅ Найдено профилей на странице {page}: {len(found_profiles)}")
+
+                    # Пауза между страницами
+                    await asyncio.sleep(3)
 
             except asyncio.TimeoutError:
-                print(f"Таймаут при загрузке страницы {page}")
+                print(f"⏰ Таймаут при загрузке страницы {page}")
                 continue
             except Exception as e:
-                print(f"Ошибка при парсинге: {e}")
+                print(f"❌ Ошибка при парсинге: {e}")
                 continue
 
         return found_profiles
