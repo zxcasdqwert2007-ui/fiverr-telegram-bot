@@ -3,7 +3,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from parser import parse_fiverr
 
-TOKEN = os.getenv("8744221821:AAFEIBggtvAWbscfhOYIEhDEsVYkLaRR-ro")
+TOKEN = os.getenv("BOT_TOKEN")
 
 if not TOKEN:
     raise ValueError("❌ BOT_TOKEN не найден! Добавь его в Railway Variables")
