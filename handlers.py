@@ -121,35 +121,50 @@ async def cmd_start_parsing(message: types.Message, state: FSMContext):
     asyncio.create_task(run_parser(message.chat.id, state, keywords, exclude_countries, proxy_url))
 
 async def run_parser(chat_id: int, state: FSMContext, keywords: list, exclude_countries: list, proxy_url: str):
-    async with FiverrParser(exclude_countries=exclude_countries, proxy_url=proxy_url) as parser:
-        for keyword in keywords:
-            current = await state.get_data()
-            if not current.get('parsing_active', False):
-                await bot.send_message(chat_id, "⏹ Парсинг остановлен.")
-                return
+    try:
+        async with FiverrParser(exclude_countries=exclude_countries, proxy_url=proxy_url) as parser:
+            for keyword in keywords:
+                current = await state.get_data()
+                if not current.get('parsing_active', False):
+                    await bot.send_message(chat_id, "⏹ Парсинг остановлен.")
+                    return
 
-            await bot.send_message(chat_id, f"🔎 Ищу по слову: {keyword}")
-            profiles = await parser.search_profiles(keyword, max_pages=15)
+                await bot.send_message(chat_id, f"🔎 Ищу по слову: {keyword}")
+                profiles = await parser.search_profiles(keyword, max_pages=15)
 
-            if profiles:
-                for prof in profiles:
-                    current = await state.get_data()
-                    if not current.get('parsing_active', False):
-                        await bot.send_message(chat_id, "⏹ Остановлено.")
-                        return
-                    text = (
-                        f"🎯 Найден продавец\n"
-                        f"Слово: {prof['keyword']}\n"
-                        f"Страна: {prof['country']}\n"
-                        f"Отзывы: {prof['reviews']}\n"
-                        f"📬 Инбокс: {prof['inbox_url']}"
-                    )
-                    await bot.send_message(chat_id, text)
-                    await asyncio.sleep(1)
-            else:
-                await bot.send_message(chat_id, f"❌ Ничего не найдено по слову '{keyword}'.")
+                if profiles:
+                    for prof in profiles:
+                        current = await state.get_data()
+                        if not current.get('parsing_active', False):
+                            await bot.send_message(chat_id, "⏹ Остановлено.")
+                            return
+                        text = (
+                            f"🎯 Найден продавец\n"
+                            f"Слово: {prof['keyword']}\n"
+                            f"Страна: {prof['country']}\n"
+                            f"Отзывы: {prof['reviews']}\n"
+                            f"📬 Инбокс: {prof['inbox_url']}"
+                        )
+                        await bot.send_message(chat_id, text)
+                        await asyncio.sleep(1)
+                else:
+                    await bot.send_message(chat_id, f"❌ Ничего не найдено по слову '{keyword}'.")
 
-        await bot.send_message(chat_id, "✅ Парсинг всех ключевых слов завершён.")
+            await bot.send_message(chat_id, "✅ Парсинг всех ключевых слов завершён.")
+    except Exception as e:
+        error_text = str(e)
+        if "Invalid proxy response" in error_text:
+            await bot.send_message(
+                chat_id,
+                "❌ Ошибка прокси: неверный ответ от прокси-сервера.\n"
+                "Возможно, прокси не работает или требует аутентификации.\n"
+                "Отправьте /skip_proxy чтобы отключить прокси, или /set_proxy чтобы указать другой."
+            )
+        else:
+            await bot.send_message(chat_id, f"❌ Ошибка при парсинге: {error_text}")
+    finally:
+        # Сбрасываем флаг активности
+        await state.update_data(parsing_active=False)
 
 async def cmd_stop(message: types.Message, state: FSMContext):
     await state.update_data(parsing_active=False)
