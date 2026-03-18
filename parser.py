@@ -31,22 +31,9 @@ class FiverrParser:
 
     async def search_profiles(self, keyword: str, max_pages: int = 15) -> List[Dict]:
         found_profiles = []
-async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-    print(f"📡 Статус ответа: {response.status}")
-    
-    # ⬇️ ВОТ ЭТОТ БЛОК ДЛЯ ДИАГНОСТИКИ
-    html = await response.text()
-    # Сохраняем в файл для анализа (если есть доступ к файловой системе) или выводим в логи
-    print("📄 ПЕРВЫЕ 2000 СИМВОЛОВ HTML:")
-    print(html[:2000])
-    print("="*80)
-    # ⬆️ КОНЕЦ БЛОКА
-
-    soup = BeautifulSoup(html, 'html.parser')
-    # ... остальной код
 
         for page in range(1, max_pages + 1):
-            # ✅ Правильные параметры из рабочей ссылки
+            # Правильные параметры из рабочей ссылки
             url = (f"{self.base_url}/search/gigs?query={keyword}&page={page}"
                    f"&sort=newest_arrivals&seller_level=new&source=sorting_by"
                    f"&ref=seller_level%3Ana&filter=new")
@@ -55,19 +42,20 @@ async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as res
             try:
                 async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     print(f"📡 Статус ответа: {response.status}")
+
+                    # Получаем HTML
+                    html = await response.text()
+                    print("📄 ПЕРВЫЕ 2000 СИМВОЛОВ HTML:")
+                    print(html[:2000])
+                    print("=" * 80)
+
                     if response.status != 200:
                         print(f"❌ Ошибка {response.status} на странице {page}")
-                        # Читаем немного ответа для диагностики
-                        text_sample = await response.text()
-                        print(f"📄 Первые 500 символов ответа:\n{text_sample[:500]}")
                         continue
-
-                    html = await response.text()
-                    print(f"📄 Первые 500 символов HTML:\n{html[:500]}")
 
                     soup = BeautifulSoup(html, 'html.parser')
 
-                    # 🔍 Несколько вариантов поиска карточек продавцов
+                    # Поиск карточек продавцов (несколько вариантов)
                     seller_cards = []
 
                     # Вариант 1: data-testid (современный Fiverr)
@@ -81,12 +69,11 @@ async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as res
                         if seller_cards:
                             print(f"✅ Найдено карточек по class: {len(seller_cards)}")
 
-                    # Вариант 3: ищем любые ссылки на профили и собираем контейнеры-родители
+                    # Вариант 3: ищем ссылки на профили и собираем родительские контейнеры
                     if not seller_cards:
                         profile_links = soup.find_all('a', href=re.compile(r'^/[^/]+$'))
                         if profile_links:
                             print(f"🔗 Найдено {len(profile_links)} прямых ссылок на профили")
-                            # Для каждой ссылки берём родительский div как карточку
                             for link in profile_links:
                                 parent = link.find_parent('div', class_=re.compile('card|item|result'))
                                 if parent and parent not in seller_cards:
@@ -98,7 +85,6 @@ async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as res
                         continue
 
                     for card in seller_cards:
-                        # Извлекаем имя пользователя из ссылки
                         username_tag = card.find('a', href=re.compile(r'^/[^/]+$'))
                         if not username_tag:
                             continue
@@ -122,7 +108,7 @@ async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as res
                         if reviews != 0:
                             continue
 
-                        # Наличие гигов (ищем ссылку на гиги)
+                        # Наличие гигов
                         gigs_exist = bool(card.find('a', href=re.compile(r'/gigs')))
                         if not gigs_exist:
                             continue
@@ -137,8 +123,6 @@ async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as res
                         })
 
                     print(f"✅ Найдено профилей на странице {page}: {len(found_profiles)}")
-
-                    # Пауза между страницами
                     await asyncio.sleep(3)
 
             except asyncio.TimeoutError:
