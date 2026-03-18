@@ -38,7 +38,7 @@ class FiverrParser:
             print(f"Парсинг страницы {page} для '{keyword}': {url}")
 
             try:
-                async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as response:
                     if response.status != 200:
                         print(f"Ошибка {response.status} на странице {page}")
                         continue
