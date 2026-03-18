@@ -31,6 +31,19 @@ class FiverrParser:
 
     async def search_profiles(self, keyword: str, max_pages: int = 15) -> List[Dict]:
         found_profiles = []
+async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+    print(f"📡 Статус ответа: {response.status}")
+    
+    # ⬇️ ВОТ ЭТОТ БЛОК ДЛЯ ДИАГНОСТИКИ
+    html = await response.text()
+    # Сохраняем в файл для анализа (если есть доступ к файловой системе) или выводим в логи
+    print("📄 ПЕРВЫЕ 2000 СИМВОЛОВ HTML:")
+    print(html[:2000])
+    print("="*80)
+    # ⬆️ КОНЕЦ БЛОКА
+
+    soup = BeautifulSoup(html, 'html.parser')
+    # ... остальной код
 
         for page in range(1, max_pages + 1):
             # ✅ Правильные параметры из рабочей ссылки
