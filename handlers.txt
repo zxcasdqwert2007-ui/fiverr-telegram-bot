@@ -73,9 +73,19 @@ async def process_proxy(message: types.Message, state: FSMContext):
     else:
         proxy_url = proxy_input
 
-    # Простейшая проверка наличия протокола
-    if not re.match(r'^(http|https|socks5)://', proxy_url):
-        await message.answer("❌ Неверный формат. Попробуйте ещё раз или /skip_proxy")
+    # Замена https на http (библиотека aiohttp-socks не поддерживает https)
+    if proxy_url.startswith('https://'):
+        proxy_url = proxy_url.replace('https://', 'http://', 1)
+        await message.answer("⚠️ Протокол https заменён на http (поддерживается только http/socks).")
+
+    # Проверка допустимых протоколов
+    allowed = ('http://', 'socks5://', 'socks4://')
+    if not proxy_url.startswith(allowed):
+        await message.answer(
+            "❌ Неверный протокол. Допустимы: http, socks5, socks4.\n"
+            "Примеры: http://ip:port, socks5://user:pass@ip:port\n"
+            "Отправьте /skip_proxy чтобы отключить прокси."
+        )
         return
 
     await state.update_data(proxy_url=proxy_url)
