@@ -1,19 +1,29 @@
 import aiohttp
+from aiohttp_socks import ProxyConnector
 from bs4 import BeautifulSoup
 import asyncio
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 class FiverrParser:
-    def __init__(self, exclude_countries: List[str] = None):
+    def __init__(self, exclude_countries: List[str] = None, proxy_url: Optional[str] = None):
         self.base_url = "https://www.fiverr.com"
         self.exclude_countries = [c.strip().lower() for c in exclude_countries] if exclude_countries else []
+        self.proxy_url = proxy_url
         self.session = None
 
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession(headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
+        if self.proxy_url:
+            connector = ProxyConnector.from_url(self.proxy_url)
+        else:
+            connector = aiohttp.TCPConnector()
+
+        self.session = aiohttp.ClientSession(
+            connector=connector,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+        )
         return self
 
     async def __aexit__(self, *args):
@@ -35,7 +45,7 @@ class FiverrParser:
                     html = await response.text()
                     soup = BeautifulSoup(html, 'html.parser')
 
-                    # Попробуйте разные селекторы, если не работает
+                    # Селекторы (подберите под текущую версию Fiverr)
                     seller_cards = soup.find_all('div', attrs={'data-testid': 'seller-card'})
                     if not seller_cards:
                         seller_cards = soup.find_all('div', class_=re.compile('seller-info|freelancer-card'))
@@ -82,7 +92,7 @@ class FiverrParser:
                             'keyword': keyword
                         })
 
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(3)  # Пауза между страницами
 
             except Exception as e:
                 print(f"Ошибка: {e}")

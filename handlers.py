@@ -1,11 +1,10 @@
+import re
 from aiogram import types, Dispatcher
 from aiogram.dispatcher import FSMContext
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from states import ParseSettings
 from parser import FiverrParser
 import asyncio
-
-# Импортируем бота из loader, а не из bot.py
 from loader import bot
 
 def get_main_keyboard():
@@ -13,6 +12,7 @@ def get_main_keyboard():
     kb.add(KeyboardButton("/start"))
     kb.add(KeyboardButton("/set_keywords"))
     kb.add(KeyboardButton("/set_exclude_countries"))
+    kb.add(KeyboardButton("/set_proxy"))
     kb.add(KeyboardButton("/start_parsing"))
     kb.add(KeyboardButton("/stop"))
     return kb
@@ -23,11 +23,13 @@ async def cmd_start(message: types.Message):
         "Команды:\n"
         "/set_keywords — задать ключевые слова (через запятую)\n"
         "/set_exclude_countries — исключить страны (через запятую)\n"
+        "/set_proxy — установить SOCKS5 прокси (формат: ip:port, можно с логином:pass)\n"
         "/start_parsing — запустить парсинг\n"
         "/stop — остановить",
         reply_markup=get_main_keyboard()
     )
 
+# ===== Ключевые слова =====
 async def cmd_set_keywords(message: types.Message):
     await message.answer("Введите ключевые слова через запятую (например: logo design, web development):")
     await ParseSettings.waiting_for_keywords.set()
@@ -39,9 +41,9 @@ async def process_keywords(message: types.Message, state: FSMContext):
         return
     await state.update_data(keywords=keywords)
     await message.answer(f"✅ Ключевые слова сохранены: {', '.join(keywords)}")
-    # Сбрасываем состояние, но данные остаются
     await state.set_state(None)
 
+# ===== Исключаемые страны =====
 async def cmd_set_exclude_countries(message: types.Message):
     await message.answer("Введите страны для исключения через запятую (например: Russia, China):")
     await ParseSettings.waiting_for_exclude_countries.set()
@@ -52,26 +54,64 @@ async def process_exclude_countries(message: types.Message, state: FSMContext):
     await message.answer(f"✅ Исключаемые страны сохранены: {', '.join(countries) if countries else 'нет'}")
     await state.set_state(None)
 
+# ===== Прокси =====
+async def cmd_set_proxy(message: types.Message):
+    await message.answer(
+        "🔌 Отправьте строку прокси. Можно в любом формате:\n"
+        "• `ip:port` (будет добавлено socks5://)\n"
+        "• `socks5://ip:port`\n"
+        "• `socks5://user:pass@ip:port`\n\n"
+        "Если прокси не нужен, отправьте /skip_proxy"
+    )
+    await ParseSettings.waiting_for_proxy.set()
+
+async def process_proxy(message: types.Message, state: FSMContext):
+    proxy_input = message.text.strip()
+    # Если нет протокола, добавляем socks5://
+    if '://' not in proxy_input:
+        proxy_url = f"socks5://{proxy_input}"
+    else:
+        proxy_url = proxy_input
+
+    # Простейшая проверка: должен быть хост и порт
+    # Пример: socks5://127.0.0.1:60000 или socks5://user:pass@host:port
+    if not re.match(r'^(socks5|http|https)://', proxy_url):
+        await message.answer("❌ Неверный формат. Попробуйте ещё раз или /skip_proxy")
+        return
+
+    await state.update_data(proxy_url=proxy_url)
+    await message.answer("✅ Прокси сохранён.")
+    await state.set_state(None)
+
+async def skip_proxy(message: types.Message, state: FSMContext):
+    await state.update_data(proxy_url=None)
+    await message.answer("✅ Прокси не используется.")
+    await state.set_state(None)
+
+# ===== Запуск парсинга =====
 async def cmd_start_parsing(message: types.Message, state: FSMContext):
     data = await state.get_data()
     keywords = data.get('keywords', [])
     exclude_countries = data.get('exclude_countries', [])
+    proxy_url = data.get('proxy_url')
 
     if not keywords:
         await message.answer("❌ Сначала задайте ключевые слова через /set_keywords")
         return
 
+    proxy_status = f"✅ Используется прокси: {proxy_url}" if proxy_url else "⚠️ Прокси не задан (возможны блокировки)"
     await message.answer(
         f"🔍 Парсинг запущен!\n"
         f"Ключевые слова: {', '.join(keywords)}\n"
-        f"Исключаемые страны: {', '.join(exclude_countries) if exclude_countries else 'нет'}"
+        f"Исключаемые страны: {', '.join(exclude_countries) if exclude_countries else 'нет'}\n"
+        f"{proxy_status}"
     )
 
     await state.update_data(parsing_active=True)
-    asyncio.create_task(run_parser(message.chat.id, state, keywords, exclude_countries))
+    asyncio.create_task(run_parser(message.chat.id, state, keywords, exclude_countries, proxy_url))
 
-async def run_parser(chat_id: int, state: FSMContext, keywords: list, exclude_countries: list):
-    async with FiverrParser(exclude_countries=exclude_countries) as parser:
+async def run_parser(chat_id: int, state: FSMContext, keywords: list, exclude_countries: list, proxy_url: str):
+    async with FiverrParser(exclude_countries=exclude_countries, proxy_url=proxy_url) as parser:
         for keyword in keywords:
             current = await state.get_data()
             if not current.get('parsing_active', False):
@@ -109,8 +149,11 @@ def register_handlers(dp: Dispatcher):
     dp.register_message_handler(cmd_start, commands=['start'])
     dp.register_message_handler(cmd_set_keywords, commands=['set_keywords'])
     dp.register_message_handler(cmd_set_exclude_countries, commands=['set_exclude_countries'])
+    dp.register_message_handler(cmd_set_proxy, commands=['set_proxy'])
+    dp.register_message_handler(skip_proxy, commands=['skip_proxy'], state=ParseSettings.waiting_for_proxy)
     dp.register_message_handler(cmd_start_parsing, commands=['start_parsing'])
     dp.register_message_handler(cmd_stop, commands=['stop'])
 
     dp.register_message_handler(process_keywords, state=ParseSettings.waiting_for_keywords)
     dp.register_message_handler(process_exclude_countries, state=ParseSettings.waiting_for_exclude_countries)
+    dp.register_message_handler(process_proxy, state=ParseSettings.waiting_for_proxy)
