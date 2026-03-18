@@ -5,9 +5,6 @@ from parser import parse_fiverr
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-if not TOKEN:
-    raise ValueError("❌ BOT_TOKEN не найден! Добавь его в Railway Variables")
-
 bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
 
