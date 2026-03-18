@@ -1,87 +1,129 @@
 from aiogram import Dispatcher, types
 from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.dispatcher.filters import Text
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from config import BOT_TOKEN
+from states import ParseSettings
 from parser import FiverrParser
 import asyncio
 
-# Класс состояний для настройки парсинга
-class ParseSettings(StatesGroup):
-    waiting_for_countries = State()
-    parsing_active = State()
-
-# Клавиатура
+# Клавиатура главного меню
 def get_main_keyboard():
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
     keyboard.add(KeyboardButton("/start"))
+    keyboard.add(KeyboardButton("/set_keywords"))
+    keyboard.add(KeyboardButton("/set_exclude_countries"))
+    keyboard.add(KeyboardButton("/start_parsing"))
     keyboard.add(KeyboardButton("/stop"))
-    keyboard.add(KeyboardButton("/set_countries"))
     return keyboard
 
 async def cmd_start(message: types.Message):
-    """Обработчик команды /start"""
     await message.answer(
-        "Привет! Я бот для поиска новых продавцов на Fiverr.\n"
+        "👋 Привет! Я помогу искать новых продавцов на Fiverr.\n\n"
         "Команды:\n"
-        "/set_countries - Установить страны для поиска\n"
-        "/start_parsing - Начать поиск\n"
-        "/stop - Остановить поиск",
+        "/set_keywords — задать ключевые слова для поиска (через запятую)\n"
+        "/set_exclude_countries — задать страны, которые нужно исключить (через запятую)\n"
+        "/start_parsing — запустить парсинг\n"
+        "/stop — остановить парсинг",
         reply_markup=get_main_keyboard()
     )
 
-async def cmd_set_countries(message: types.Message):
-    """Начало установки стран"""
-    await message.answer("Введите список стран через запятую (например: United States, Canada):")
-    await ParseSettings.waiting_for_countries.set()
+# Установка ключевых слов
+async def cmd_set_keywords(message: types.Message):
+    await message.answer("Введите ключевые слова через запятую (например: logo design, web development, seo):")
+    await ParseSettings.waiting_for_keywords.set()
 
-async def process_countries(message: types.Message, state: FSMContext):
-    """Сохранение списка стран"""
-    countries = [c.strip() for c in message.text.split(',')]
-    await state.update_data(allowed_countries=countries)
-    await message.answer(f"Страны сохранены: {', '.join(countries)}")
+async def process_keywords(message: types.Message, state: FSMContext):
+    keywords = [kw.strip() for kw in message.text.split(',') if kw.strip()]
+    if not keywords:
+        await message.answer("Список ключевых слов пуст. Попробуйте снова.")
+        return
+    await state.update_data(keywords=keywords)
+    await message.answer(f"✅ Ключевые слова сохранены: {', '.join(keywords)}")
     await state.finish()
 
+# Установка исключаемых стран
+async def cmd_set_exclude_countries(message: types.Message):
+    await message.answer("Введите страны, которые нужно исключить, через запятую (например: Russia, China, India):")
+    await ParseSettings.waiting_for_exclude_countries.set()
+
+async def process_exclude_countries(message: types.Message, state: FSMContext):
+    countries = [c.strip() for c in message.text.split(',') if c.strip()]
+    await state.update_data(exclude_countries=countries)
+    await message.answer(f"✅ Исключаемые страны сохранены: {', '.join(countries) if countries else 'нет'}")
+    await state.finish()
+
+# Запуск парсинга
 async def cmd_start_parsing(message: types.Message, state: FSMContext):
-    """Запуск парсинга"""
-    user_data = await state.get_data()
-    allowed_countries = user_data.get('allowed_countries', [])
+    data = await state.get_data()
+    keywords = data.get('keywords', [])
+    exclude_countries = data.get('exclude_countries', [])
 
-    await message.answer(f"Парсинг запущен для стран: {allowed_countries if allowed_countries else 'Все'}")
+    if not keywords:
+        await message.answer("❌ Сначала задайте ключевые слова через /set_keywords")
+        return
 
-    # Сохраняем состояние, что парсинг активен для этого пользователя
-    async with state.proxy() as data:
-        data['parsing_active'] = True
+    await message.answer(
+        f"🔍 Парсинг запущен!\n"
+        f"Ключевые слова: {', '.join(keywords)}\n"
+        f"Исключаемые страны: {', '.join(exclude_countries) if exclude_countries else 'нет'}\n"
+        f"Буду искать профили с 0 отзывами, наличием гигов и не из исключённых стран."
+    )
 
-    # Запускаем парсер в фоне (нужен будет цикл)
-    # В реальности нужно запускать это как отдельную таску
-    asyncio.create_task(run_parser(message.chat.id, state))
+    # Сохраняем флаг активности парсинга
+    await state.update_data(parsing_active=True)
 
-async def run_parser(chat_id: int, state: FSMContext):
-    """Основной цикл парсера (запускается в фоне)"""
-    async with FiverrParser() as parser:
-        while True:
+    # Запускаем фоновую задачу
+    asyncio.create_task(run_parser(message.chat.id, state, keywords, exclude_countries))
+
+async def run_parser(chat_id: int, state: FSMContext, keywords: list, exclude_countries: list):
+    """Фоновая задача парсинга"""
+    from bot import bot  # импортируем экземпляр бота (нужно будет добавить в bot.py)
+
+    async with FiverrParser(exclude_countries=exclude_countries) as parser:
+        for keyword in keywords:
             # Проверяем, не остановлен ли парсинг
             current_state = await state.get_data()
             if not current_state.get('parsing_active', False):
-                break
+                await bot.send_message(chat_id, "⏹ Парсинг остановлен пользователем.")
+                return
 
-            # URL категории для парсинга (нужно настраивать)
-            test_url = "https://www.fiverr.com/categories/graphics-design"
+            await bot.send_message(chat_id, f"🔎 Ищу профили по слову: {keyword}")
 
-            profiles = await parser.search_profiles(test_url, max_pages=1)
+            profiles = await parser.search_profiles(keyword, max_pages=15)
 
-            for profile in profiles:
-                # Тут нужно будет отправить сообщение пользователю
-                # Для этого нужен доступ к боту. Оставим заглушку.
-                print(f"Найден профиль: {profile}")
-                # await bot.send_message(chat_id, f"Новый продавец: {profile['inbox_url']}")
+            if profiles:
+                for profile in profiles:
+                    # Проверка на остановку между отправками
+                    current_state = await state.get_data()
+                    if not current_state.get('parsing_active', False):
+                        await bot.send_message(chat_id, "⏹ Парсинг остановлен пользователем.")
+                        return
 
-            # Пауза между циклами
-            await asyncio.sleep(60)
+                    text = (
+                        f"🎯 Найден новый продавец!\n"
+                        f"Слово: {profile['keyword']}\n"
+                        f"Страна: {profile['country']}\n"
+                        f"Отзывы: {profile['reviews']}\n"
+                        f"📬 Ссылка на инбокс: {profile['inbox_url']}"
+                    )
+                    await bot.send_message(chat_id, text)
+                    await asyncio.sleep(1)  # небольшая задержка между отправками
+            else:
+                await bot.send_message(chat_id, f"❌ По слову '{keyword}' ничего не найдено.")
+
+        await bot.send_message(chat_id, "✅ Парсинг всех ключевых слов завершён.")
 
 async def cmd_stop(message: types.Message, state: FSMContext):
-    """Остановка парсинга"""
-    async with state.proxy() as data:
-        data['parsing_active'] = False
-    await message.answer("Парсинг остановлен.")
+    await state.update_data(parsing_active=False)
+    await message.answer("⏹ Команда остановки принята. Парсинг скоро завершится.")
+
+# Регистрация обработчиков
+def register_handlers(dp: Dispatcher):
+    dp.register_message_handler(cmd_start, commands=['start'])
+    dp.register_message_handler(cmd_set_keywords, commands=['set_keywords'])
+    dp.register_message_handler(cmd_set_exclude_countries, commands=['set_exclude_countries'])
+    dp.register_message_handler(cmd_start_parsing, commands=['start_parsing'])
+    dp.register_message_handler(cmd_stop, commands=['stop'])
+
+    dp.register_message_handler(process_keywords, state=ParseSettings.waiting_for_keywords)
+    dp.register_message_handler(process_exclude_countries, state=ParseSettings.waiting_for_exclude_countries)
