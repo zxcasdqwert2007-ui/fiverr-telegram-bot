@@ -23,7 +23,7 @@ async def cmd_start(message: types.Message):
         "Команды:\n"
         "/set_keywords — задать ключевые слова (через запятую)\n"
         "/set_exclude_countries — исключить страны (через запятую)\n"
-        "/set_proxy — установить SOCKS5 прокси (формат: ip:port, можно с логином:pass)\n"
+        "/set_proxy — установить HTTP/SOCKS5 прокси (формат: ip:port или с протоколом)\n"
         "/start_parsing — запустить парсинг\n"
         "/stop — остановить",
         reply_markup=get_main_keyboard()
@@ -58,8 +58,8 @@ async def process_exclude_countries(message: types.Message, state: FSMContext):
 async def cmd_set_proxy(message: types.Message):
     await message.answer(
         "🔌 Отправьте строку прокси. Можно в любом формате:\n"
-        "• `ip:port` (будет добавлено socks5://)\n"
-        "• `socks5://ip:port`\n"
+        "• `ip:port` (будет добавлено http://)\n"
+        "• `http://ip:port`\n"
         "• `socks5://user:pass@ip:port`\n\n"
         "Если прокси не нужен, отправьте /skip_proxy"
     )
@@ -67,15 +67,14 @@ async def cmd_set_proxy(message: types.Message):
 
 async def process_proxy(message: types.Message, state: FSMContext):
     proxy_input = message.text.strip()
-    # Если нет протокола, добавляем socks5://
+    # Если нет протокола, добавляем http://
     if '://' not in proxy_input:
-        proxy_url = f"socks5://{proxy_input}"
+        proxy_url = f"http://{proxy_input}"
     else:
         proxy_url = proxy_input
 
-    # Простейшая проверка: должен быть хост и порт
-    # Пример: socks5://127.0.0.1:60000 или socks5://user:pass@host:port
-    if not re.match(r'^(socks5|http|https)://', proxy_url):
+    # Простейшая проверка наличия протокола
+    if not re.match(r'^(http|https|socks5)://', proxy_url):
         await message.answer("❌ Неверный формат. Попробуйте ещё раз или /skip_proxy")
         return
 
@@ -104,7 +103,8 @@ async def cmd_start_parsing(message: types.Message, state: FSMContext):
         f"🔍 Парсинг запущен!\n"
         f"Ключевые слова: {', '.join(keywords)}\n"
         f"Исключаемые страны: {', '.join(exclude_countries) if exclude_countries else 'нет'}\n"
-        f"{proxy_status}"
+        f"{proxy_status}\n"
+        f"⚙️ Фильтр: только новые продавцы, сортировка — новинки"
     )
 
     await state.update_data(parsing_active=True)

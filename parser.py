@@ -33,11 +33,12 @@ class FiverrParser:
         found_profiles = []
 
         for page in range(1, max_pages + 1):
-            url = f"{self.base_url}/search/gigs?query={keyword}&page={page}"
+            # URL с сортировкой по новизне и фильтром "новые продавцы"
+            url = f"{self.base_url}/search/gigs?query={keyword}&page={page}&sort=newest_arrivals&seller_level=new"
             print(f"Парсинг страницы {page} для '{keyword}': {url}")
 
             try:
-                async with self.session.get(url) as response:
+                async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     if response.status != 200:
                         print(f"Ошибка {response.status} на странице {page}")
                         continue
@@ -45,7 +46,7 @@ class FiverrParser:
                     html = await response.text()
                     soup = BeautifulSoup(html, 'html.parser')
 
-                    # Селекторы (подберите под текущую версию Fiverr)
+                    # Селекторы карточек продавцов (могут меняться, уточните при необходимости)
                     seller_cards = soup.find_all('div', attrs={'data-testid': 'seller-card'})
                     if not seller_cards:
                         seller_cards = soup.find_all('div', class_=re.compile('seller-info|freelancer-card'))
@@ -94,8 +95,11 @@ class FiverrParser:
 
                     await asyncio.sleep(3)  # Пауза между страницами
 
+            except asyncio.TimeoutError:
+                print(f"Таймаут при загрузке страницы {page}")
+                continue
             except Exception as e:
-                print(f"Ошибка: {e}")
+                print(f"Ошибка при парсинге: {e}")
                 continue
 
         return found_profiles
